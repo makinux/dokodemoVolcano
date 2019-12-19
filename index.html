@@ -380,8 +380,8 @@ function initPopulate(clickPosition) {
 		var terrainOri = new THREE.Mesh(g, three.matAlpha);
 		minfo = new Float32Array(oimo.pNum*8);
 		worker.postMessage({
-			oimoUrl: window.location.protocol + "//" + window.location.host + "/libs/oimo/oimo.min.js",
-			oimoUtilUrl: window.location.protocol + "//" + window.location.host + "/libs/oimo/oimoUtil.js",
+			oimoUrl: "./libs/oimo/oimo.min.js",
+			oimoUtilUrl: "./libs/oimo/oimoUtil.js",
 			clickPosition:gClickPosition,
 			minWGS84:minWGS84,
 			maxWGS84:maxWGS84,
