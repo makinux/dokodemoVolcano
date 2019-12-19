@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+	<title>どこでもボルケーノ！</title>
+
+  <style>
+	@import url(./libs/Cesium/Widgets/widgets.css);
+
+	body{
+		margin: 0;
+		padding: 0;
+	}
+
+	#cesiumContainer{
+		position: absolute;
+		width: 100%;
+		height: 100%;
+	}
+
+	a:hover, a:visited, a:link, a:active{
+	color: #ccccff;
+	text-decoration: none;
+}
+  </style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+<script src="./libs/oimo/oimo.min.js"></script>
+<script src="./libs/Cesium/Cesium.js"></script>
+<script src="./libs/proj4/proj4.js"></script>
+<script src="./libs/three.js/build/three.min.js"></script>
+<script id="worker1" type="javascript/worker">
+
+var world;
+var fps = 0;
+var f = [0,0,0];
+var body = [];
+var oimo;
+var clickPosition;
+var minWGS84;
+var maxWGS84;
+var pixcelX;
+var pixcelY;
+var pNum;
+var minfo;
+self.onmessage = function(e) {
+	minfo = e.data.minfo;
+	clickPosition = e.data.clickPosition;
+    if (e.data.oimoUrl) {
+		oimo = e.data.oimo;
+		minWGS84 = e.data.minWGS84;
+		maxWGS84 = e.data.maxWGS84;
+		pixcelX = e.data.pixcelX;
+		pixcelY = e.data.pixcelY;
+		pNum = oimo.pNum;
+        // Load oimo.js
+        importScripts(e.data.oimoUrl,e.data.oimoUtilUrl);
+
+        // Init physics
+        OIMO.WORLD_SCALE = 1;
+        OIMO.INV_SCALE = 1;
+
+        world = new OIMO.World(oimo.timestep, oimo.boardphase, oimo.Iterations, oimo.noStat);
+        world.gravity = new OIMO.Vec3(oimo.gDir.x, oimo.gDir.y, oimo.gDir.z);
+
+		world.clear();
+        // Ground plane
+		var terrainVertices = e.data.terrainVertices;
+	    for ( var i = 0; i < terrainVertices.length; i++ ) {
+	        v = terrainVertices[i];
+	        var verticesPos	= cartToVec(Cartesian3.fromDegrees(minWGS84[0]+(pixcelX*Math.floor(v.x+(256/oimo.n)/2)*oimo.n),
+	        	minWGS84[1]+(pixcelY*Math.floor(v.y+(256/oimo.n)/2)*oimo.n),
+	        	oimo.heightData[i]-oimo.R));
+	        var ground = new OIMO.Body({type:'sphere', size:[oimo.R], pos:[verticesPos.x,verticesPos.y,verticesPos.z], world:world, move:false});
+	        //ground.body.position.copy(verticesPos);
+	    }
+		var x, z;
+		var w=1;
+		for(var i=0; i!==pNum; i++){
+			centerPosHigh = cartToVec(Cartesian3.fromDegrees(clickPosition.longitude+(Math.random()*0.001),
+				clickPosition.latitude+(Math.random()*0.001),
+				clickPosition.height+(Math.random()*2)));
+			var x=centerPosHigh.x;
+			var y=centerPosHigh.y;
+			var z=centerPosHigh.z;
+			var gDirTmp = clone(oimo.gDir);
+			gDirTmp = multiplyScalar(gDirTmp, oimo.impulse+(Math.random()*(oimo.impulse/10)));
+			var force = new OIMO.Vec3(gDirTmp.x+(Math.random()*200)-200,gDirTmp.y+(Math.random()*200)-200,gDirTmp.z+(Math.random()*200)-200);
+			var bodyTmp = new OIMO.Body({type:'sphere', size:[w], pos:[x,y,z], move:true, world:world});
+			bodyTmp.body.applyImpulse(new OIMO.Vec3(),force);
+			bodyTmp.body.lifetime=oimo.lifetime+(Math.random()*oimo.lifetime/4)-oimo.lifetime/2;
+		}
+    }
+
+    // Step the world
+    world.step();
+
+    // Copy over the data to the buffers
+    var b = world.rigidBodies;
+    var m, j, i=0, n;
+    var pos, quad;
+    while(b!==null){
+        if(b.type === 0x1){
+	        if(b.lifetime<=0){
+		    	centerPosHigh = cartToVec(Cartesian3.fromDegrees(clickPosition.longitude+(Math.random()*0.001),clickPosition.latitude+(Math.random()*0.001),clickPosition.height+(Math.random()*2)));
+			    x=centerPosHigh.x;
+			    y=centerPosHigh.y;
+			    z=centerPosHigh.z;
+				var gDirTmp = clone(oimo.gDir);
+				gDirTmp = multiplyScalar(gDirTmp, oimo.impulse+(Math.random()*(oimo.impulse/10)));
+				var force = new OIMO.Vec3(gDirTmp.x+(Math.random()*200)-200,gDirTmp.y+(Math.random()*200)-200,gDirTmp.z+(Math.random()*200)-200);
+				b.position = new OIMO.Vec3(x,y,z);
+				b.linearVelocity = new OIMO.Vec3();
+		        b.applyImpulse(new OIMO.Vec3(),force);
+		        b.lifetime=oimo.lifetime+(Math.random()*oimo.lifetime/4)-oimo.lifetime/2;
+	        } else {
+	        	b.lifetime-=1;
+	        }
+            if(b.sleeeping){
+                minfo[n+7] = 1;}
+            else{
+                minfo[n+7] = 0;
+                n = 8*i;
+                // get position
+                pos = b.getPosition();
+                minfo[n+0] = pos.x
+                minfo[n+1] = pos.y
+                minfo[n+2] = pos.z
+                // get Quaternion
+                quad = b.getQuaternion();
+                minfo[n+3] = quad.x
+                minfo[n+4] = quad.y
+                minfo[n+5] = quad.z
+                minfo[n+6] = quad.w
+            }
+            i++;
+        }
+        b=b.next;
+    }
+
+    // Send data back to the main thread
+    self.postMessage({minfo:minfo},[minfo.buffer]);
+};
+
+
+</script>
+<script>
+
+// boundaries in WGS84
+var minWGS84;
+var maxWGS84;
+var pixcelX;
+var pixcelY;
+var defaultZoom=11;
+var cesiumContainer = document.getElementById("cesiumContainer");
+var terrainProviderURL = "http://assets.agi.com/stk-terrain/world";
+var defaultAccessToken ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1ZTBiMzBlNC04OTMwLTQ2NjgtYTkxNy1hNDM0M2I2YTlkOGEiLCJpZCI6OTg1Mywic2NvcGVzIjpbImFzciIsImdjIl0sImlhdCI6MTU1NTA1Nzg2Mn0.Xyk2vdCuYTiSIEAoadkgvTQeVDa3u4-_wKw-SytJ1tQ";
+var centerPos;
+var centerBottomPos;
+var bottomLeft;
+var gClickPosition;
+var bottomLeftHigh;
+var topLeft;
+var latDir;
+var gDir;
+var xhr = new XMLHttpRequest();
+var resultDem;
+var ellipsoid;
+var referenceCartographic;
+var terrain;
+var instance;
+// Create a blob for the inline worker code
+var blob = new Blob([document.querySelector('#worker1').textContent], {type : 'text/javascript'});
+
+var three = {
+	camera: null,
+	scene: null,
+	light: null,
+	renderer: null,
+	container: null,
+	content: null,
+	center: null,
+	meshs: [],
+	geoBox: null,
+	geoSphere: null,
+	matBox: null,
+	matSphere: null,
+	matBoxSleep: null,
+	matSphereSleep: null,
+	cam: { horizontal: 40, vertical: 60, distance: 400, automove: false },
+	mouse:  { ox:0, oy:0, h:0, v:0, mx:0, my:0, down:false, over:false, moving:true }
+};
+
+var cesium = {
+	viewer: null,
+	entities:[]
+};
+
+var oimo = {
+	world: null,
+	G : -10,
+	nG: -10,
+	pNum:1000,
+	n:4,
+	R:500,
+	w:0.5,
+	lifetime:300,
+	impulse:-80,
+	wakeup: false,
+	bodys: [],
+	fps: 0,
+	upTime: 1e3 / 60,
+	time: null,
+	time_prev: 0,
+	fpsint: 0,
+	ToRad: Math.PI / 180,
+	timestep:1/3,
+	boardphase:2,
+	Iterations:8,
+	type: 1,
+	gDir:null
+};
+oimo.x1 = 256 / oimo.n;
+oimo.y1 = 256 / oimo.n;
+oimo.x2 = 256 / oimo.n;
+oimo.y2 = 256 / oimo.n;
+oimo.heightData = new OIMO_ARRAY_TYPE( oimo.x2 * oimo.y2 );
+var minfo = new Float32Array(oimo.pNum*8);
+var dynamicPos = [];
+var dynamicOri = [];
+
+// Create worker
+var worker = new Worker(window.URL.createObjectURL(blob));
+worker.postMessage = worker.webkitPostMessage || worker.postMessage;
+var sendTime; // Time when we sent last message
+worker.onmessage = function(e) {
+    minfo = e.data.minfo;
+    var p, r, m, x, y, z;
+    var mtx = new THREE.Matrix4();
+    // Update rendering meshes
+    i = cesium.entities.values.length;
+    var n = 0, entitie;
+    while(i--){
+        n = i*8;
+        if(minfo[n+7]!==1){
+            dynamicPos[i] = new Cesium.Cartesian3(minfo[n+0], minfo[n+1], minfo[n+2]);
+            dynamicOri[i] = new Cesium.Quaternion(minfo[n+3], minfo[n+4], minfo[n+5], minfo[n+6]);
+        }
+    }
+	sendDataToWorker();
+}
+function sendDataToWorker(){
+    worker.postMessage({
+	    clickPosition:gClickPosition,
+	    minfo: minfo
+	},[minfo.buffer]);
+}
+
+
+function initCesium(){
+	// BingMapsApiKey
+	Cesium.BingMapsApi.defaultKey = 'Ag9RvlRLrnOOD11tfKZVGKCJyPeoDEpGGk1vW8ArfySVe8M2mnL3eddqqWAxDm0O';
+	ellipsoid = Cesium.Ellipsoid.WGS84;
+	Cesium.Ion.defaultAccessToken = defaultAccessToken;
+	cesium.viewer = new Cesium.Viewer('cesiumContainer', {
+		useDefaultRenderLoop: true,
+		fullscreenButton: false,
+		animation: true,
+		baseLayerPicker: false,
+		geocoder: false,
+		homeButton: false,
+		infoBox: false,
+		sceneModePicker: false,
+		selectionIndicator: false,
+		timeline: true,
+		navigationHelpButton: false,
+		navigationInstructionsInitiallyVisible: false,
+		shadows : false,
+	    terrainProvider : new Cesium.CesiumTerrainProvider({
+	        url: Cesium.IonResource.fromAssetId(1)
+	    })
+	});
+	cesium.viewer.scene.globe.depthTestAgainstTerrain = true;
+	var dataSource = new Cesium.CustomDataSource('myData');
+	cesium.entities = dataSource.entities;
+	cesium.viewer.dataSources.add(dataSource);
+	var handler = new Cesium.ScreenSpaceEventHandler(cesium.viewer.canvas, false);
+	handler.setInputAction(
+	    function(click) {
+	    	var ray = cesium.viewer.scene.camera.getPickRay(click.position);
+			if (ray != null) {
+				var referencePosition = cesium.viewer.scene.globe.pick(ray,  cesium.viewer.scene);
+				var referenceCartographic = cesium.viewer.scene.globe.ellipsoid.cartesianToCartographic(referencePosition);
+	            var longitudeString = Cesium.Math.toDegrees(referenceCartographic.longitude);
+	            var latitudeString = Cesium.Math.toDegrees(referenceCartographic.latitude);
+	            if(cesium.viewer.useDefaultRenderLoop == false){
+					gClickPosition = {longitude:longitudeString,latitude:latitudeString,height:referenceCartographic.height};
+	            } else {
+					initPopulate({longitude:longitudeString,latitude:latitudeString,height:referenceCartographic.height});
+	            }
+			}
+	    },
+	    Cesium.ScreenSpaceEventType.LEFT_CLICK
+	);
+
+	var center = Cesium.Cartesian3.fromDegrees(
+		138.739858,
+		35.273016,
+		10000
+	);
+	cesium.viewer.camera.setView({
+		destination : center,
+		orientation : {
+			heading : -50,
+			pitch : -Cesium.Math.PI_OVER_TWO * 0.5,
+			roll : 0
+		}
+	});
+}
+
+
+
+function initTerrain(w, h) {
+    var b;
+    var g = new THREE.PlaneGeometry(oimo.x1, oimo.y1, oimo.x2 - 1, oimo.y2 - 1);
+    var c = 0;
+    for (var i = 0; i < oimo.y2; i++) {
+        var r = resultDem[Math.floor(i * oimo.n)];
+        for (var j = 0; j < oimo.x2; j++) {
+            var x = j;
+            var y = i;
+        	var z = r[Math.floor(j * oimo.n)];
+            oimo.heightData[c] = z+20;
+            c++;
+        }
+    }
+}
+function fetchTile(coord) {
+    return new Promise(resolve => {
+        fetch(`https://cyberjapandata.gsi.go.jp/xyz/dem/${coord.z}/${coord.x}/${coord.y}.txt`)
+		.then(response => response.text())
+            .then(text => text.split("\n"))
+            .then(rows => rows.slice(0, rows.length - 1)) // Last row: empty
+            .then(rows => rows.map(r => r.split(",").map(d => d === "e" ? 0 : parseFloat(d)))) // e: sea
+            .then(data => resolve(data))
+            .catch(error => {throw error});
+    });
+}
+
+function initPopulate(clickPosition) {
+    gClickPosition = clickPosition;
+	coordTile = getTileCoords(gClickPosition.latitude, gClickPosition.longitude, defaultZoom);
+	rightTop = num2deg(coordTile.x + 1, coordTile.y, defaultZoom);
+	leftBottom = num2deg(coordTile.x, coordTile.y + 1, defaultZoom);
+	minWGS84 = [leftBottom[0],leftBottom[1]];
+	maxWGS84 = [rightTop[0],rightTop[1]];
+	pixcelX= (maxWGS84[0]-minWGS84[0])/256;
+	pixcelY= (maxWGS84[1]-minWGS84[1])/256;
+
+	fetchTile(coordTile).then(d => {
+		resultDem = d;
+		initTerrain();
+
+		three.matAlpha = new THREE.MeshLambertMaterial ({ color: 0x111111, side: THREE.DoubleSide, opacity: 0, transparent:true });
+		centerPosHigh	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2, (maxWGS84[1] + minWGS84[1])/2, 100));
+		centerPos	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2, (maxWGS84[1] + minWGS84[1])/2, 10));
+		centerBottomPos	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2,  (maxWGS84[1] + minWGS84[1])/2, -1));
+		bottomLeft 		= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1]));
+		topLeft 		= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], maxWGS84[1]));
+		bottomLeftHigh	= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1], 1));
+		latDir 	= new THREE.Vector3().subVectors(topLeft, bottomLeft).normalize();
+		oimo.gDir 	= new THREE.Vector3().subVectors(new THREE.Vector3(0,0,0), bottomLeft).normalize();
+		oimo.gDir.multiplyScalar(9.8);
+
+
+		var g = new THREE.PlaneGeometry(oimo.x1, oimo.y1, oimo.x2 - 1, oimo.y2 - 1);
+		var terrainOri = new THREE.Mesh(g, three.matAlpha);
+		minfo = new Float32Array(oimo.pNum*8);
+		worker.postMessage({
+			oimoUrl: window.location.protocol + "//" + window.location.host + "/libs/oimo/oimo.min.js",
+			oimoUtilUrl: window.location.protocol + "//" + window.location.host + "/libs/oimo/oimoUtil.js",
+			clickPosition:gClickPosition,
+			minWGS84:minWGS84,
+			maxWGS84:maxWGS84,
+			terrainVertices:terrainOri.geometry.vertices,
+			pixcelX:pixcelX,
+			pixcelY:pixcelY,
+			oimo: oimo,
+			minfo: minfo
+		});
+		var i = oimo.pNum;
+		//add object
+		while (i--){
+			dynamicPos[i] = new Cesium.Cartesian3.fromDegrees(clickPosition.longitude+(Math.random()*0.001),
+					clickPosition.latitude+(Math.random()*0.001),
+					clickPosition.height+(Math.random()*2));
+			var callbackPos = new Function("time, result", "return dynamicPos[" + i + "];" );
+			var callbackOri = new Function("time, result", "return dynamicOri[" + i + "];" );
+			cesium.entities.add({
+				position : new Cesium.CallbackProperty(callbackPos, false),
+				orientation : new Cesium.CallbackProperty(callbackOri, false),
+				point :{
+					pixelSize :6,
+					color : new Cesium.Color(0.1, 0.1, 0.1, 0.4)
+				}
+			});
+		}
+	});
+	
+
+}
+
+function getTileCoords(lat, lon, zoom) {
+    const xTile = parseInt(Math.floor((lon + 180) / 360 * (1 << zoom)));
+    const yTile = parseInt(Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * (1 << zoom)));
+    return { "z": zoom, "x": xTile, "y": yTile };
+}
+function num2deg(xtile, ytile, zoom){
+	n = 2.0 ** zoom;
+	lon_deg = xtile / n * 360.0 - 180.0;
+	lat_rad = Math.atan(Math.sinh(Math.PI * (1 - 2 * ytile / n)));
+	lat_deg = lat_rad * (180/Math.PI);
+	return [lon_deg, lat_deg];
+}
+function Orbit(origine, horizontal, vertical, distance) {
+	var p = new THREE.Vector3();
+	var phi = vertical*ToRad;
+	var theta = horizontal*ToRad;
+	p.x = (distance * Math.sin(phi) * Math.cos(theta)) + origine.x;
+	p.z = (distance * Math.sin(phi) * Math.sin(theta)) + origine.z;
+	p.y = (distance * Math.cos(phi)) + origine.y;
+	return p;
+}
+function cartToVec(cart){
+	return new THREE.Vector3(cart.x, cart.y, cart.z);
+};
+initCesium();
+
+
+  </script>
+</body>
+</html>
