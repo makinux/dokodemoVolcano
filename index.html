@@ -8,6 +8,22 @@
 
   <style>
 	@import url(./libs/Cesium/Widgets/widgets.css);
+	/* This file is automatically rebuilt by the Cesium build process. */
+	.cesium-toolbar-button {
+		box-sizing: border-box;
+		width: 32px;
+		height: 32px;
+		border-radius: 14%;
+		padding: 0;
+		vertical-align: middle;
+		z-index: 0
+	}
+	#toolbar {
+		margin: 5px;
+		padding: 2px 5px;
+		position: absolute
+	}
+
 
 	body{
 		margin: 0;
@@ -21,13 +37,51 @@
 	}
 
 	a:hover, a:visited, a:link, a:active{
-	color: #ccccff;
-	text-decoration: none;
-}
+		color: #ccccff;
+		text-decoration: none;
+	}
+	#toolbar {
+		background: rgba(42, 42, 42, 0.8);
+		padding: 4px;
+		border-radius: 4px;
+	}
+
+	#toolbar input {
+		vertical-align: middle;
+		padding-top: 2px;
+		padding-bottom: 2px;
+	}
+
+	#toolbar .header {
+		font-weight: bold;
+	}
   </style>
 </head>
 <body>
-<div id="cesiumContainer"></div>
+
+	<div id="cesiumContainer"></div>
+
+	<div id="toolbar">
+		<table>
+			<tbody>
+			<tr>
+				<td>Num</td>
+				<td>
+					<input type="range" min="0.0" max="10000.0" step="1" data-bind="value: pNum, valueUpdate: 'input'">
+					<input type="text" size="5" data-bind="value: pNum">
+				</td>
+			</tr>
+	
+			<tr>
+				<td>Gravity</td>
+				<td>
+					<input type="range" min="-20.0" max="20.0" step="1" data-bind="value: G, valueUpdate: 'input'">
+					<input type="text" size="5" data-bind="value: G">
+				</td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
 <script src="./libs/oimo/oimo.min.js"></script>
 <script src="./libs/Cesium/Cesium.js"></script>
 <script src="./libs/proj4/proj4.js"></script>
@@ -232,6 +286,29 @@ var minfo = new Float32Array(oimo.pNum*8);
 var dynamicPos = [];
 var dynamicOri = [];
 
+var oimoObject = {
+	pNum : oimo.pNum,
+	G : oimo.G
+};
+
+Cesium.knockout.track(oimoObject);
+var toolbar = document.getElementById('toolbar');
+Cesium.knockout.applyBindings(oimoObject, toolbar);
+
+Cesium.knockout.getObservable(oimoObject, 'pNum').subscribe(
+    function(newValue) {
+		oimo.pNum = parseFloat(newValue);
+		oimoInit();
+    }
+);
+
+Cesium.knockout.getObservable(oimoObject, 'G').subscribe(
+    function(newValue) {
+		oimo.G = parseFloat(newValue);
+		oimoInit();
+    }
+);
+
 // Create worker
 var worker = new Worker(window.URL.createObjectURL(blob));
 worker.postMessage = worker.webkitPostMessage || worker.postMessage;
@@ -363,54 +440,60 @@ function initPopulate(clickPosition) {
 	fetchTile(coordTile).then(d => {
 		resultDem = d;
 		initTerrain();
-
-		three.matAlpha = new THREE.MeshLambertMaterial ({ color: 0x111111, side: THREE.DoubleSide, opacity: 0, transparent:true });
-		centerPosHigh	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2, (maxWGS84[1] + minWGS84[1])/2, 100));
-		centerPos	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2, (maxWGS84[1] + minWGS84[1])/2, 10));
-		centerBottomPos	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2,  (maxWGS84[1] + minWGS84[1])/2, -1));
-		bottomLeft 		= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1]));
-		topLeft 		= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], maxWGS84[1]));
-		bottomLeftHigh	= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1], 1));
-		latDir 	= new THREE.Vector3().subVectors(topLeft, bottomLeft).normalize();
-		oimo.gDir 	= new THREE.Vector3().subVectors(new THREE.Vector3(0,0,0), bottomLeft).normalize();
-		oimo.gDir.multiplyScalar(9.8);
-
-
-		var g = new THREE.PlaneGeometry(oimo.x1, oimo.y1, oimo.x2 - 1, oimo.y2 - 1);
-		var terrainOri = new THREE.Mesh(g, three.matAlpha);
-		minfo = new Float32Array(oimo.pNum*8);
-		worker.postMessage({
-			oimoUrl: window.location.protocol + "//" + window.location.host + "/dokodemoVolcano/libs/oimo/oimo.min.js",
-			oimoUtilUrl: window.location.protocol + "//" + window.location.host + "/dokodemoVolcano/libs/oimo/oimoUtil.js",
-			clickPosition:gClickPosition,
-			minWGS84:minWGS84,
-			maxWGS84:maxWGS84,
-			terrainVertices:terrainOri.geometry.vertices,
-			pixcelX:pixcelX,
-			pixcelY:pixcelY,
-			oimo: oimo,
-			minfo: minfo
-		});
-		var i = oimo.pNum;
-		//add object
-		while (i--){
-			dynamicPos[i] = new Cesium.Cartesian3.fromDegrees(clickPosition.longitude+(Math.random()*0.001),
-					clickPosition.latitude+(Math.random()*0.001),
-					clickPosition.height+(Math.random()*2));
-			var callbackPos = new Function("time, result", "return dynamicPos[" + i + "];" );
-			var callbackOri = new Function("time, result", "return dynamicOri[" + i + "];" );
-			cesium.entities.add({
-				position : new Cesium.CallbackProperty(callbackPos, false),
-				orientation : new Cesium.CallbackProperty(callbackOri, false),
-				point :{
-					pixelSize :6,
-					color : new Cesium.Color(0.1, 0.1, 0.1, 0.4)
-				}
-			});
-		}
+		oimoInit();
 	});
 	
 
+}
+
+function oimoInit(){
+	// delete all entities
+	cesium.entities.removeAll();
+
+	three.matAlpha = new THREE.MeshLambertMaterial ({ color: 0x111111, side: THREE.DoubleSide, opacity: 0, transparent:true });
+	centerPosHigh	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2, (maxWGS84[1] + minWGS84[1])/2, 100));
+	centerPos	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2, (maxWGS84[1] + minWGS84[1])/2, 10));
+	centerBottomPos	= cartToVec(Cesium.Cartesian3.fromDegrees((maxWGS84[0] + minWGS84[0])/2,  (maxWGS84[1] + minWGS84[1])/2, -1));
+	bottomLeft 		= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1]));
+	topLeft 		= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], maxWGS84[1]));
+	bottomLeftHigh	= cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1], 1));
+	latDir 	= new THREE.Vector3().subVectors(topLeft, bottomLeft).normalize();
+	oimo.gDir 	= new THREE.Vector3().subVectors(new THREE.Vector3(0,0,0), bottomLeft).normalize();
+	oimo.gDir.multiplyScalar(9.8);
+
+
+	var g = new THREE.PlaneGeometry(oimo.x1, oimo.y1, oimo.x2 - 1, oimo.y2 - 1);
+	var terrainOri = new THREE.Mesh(g, three.matAlpha);
+	minfo = new Float32Array(oimo.pNum*8);
+	worker.postMessage({
+		oimoUrl: window.location.protocol + "//" + window.location.host + "/dokodemoVolcano/libs/oimo/oimo.min.js",
+		oimoUtilUrl: window.location.protocol + "//" + window.location.host + "/dokodemoVolcano/libs/oimo/oimoUtil.js",
+		clickPosition:gClickPosition,
+		minWGS84:minWGS84,
+		maxWGS84:maxWGS84,
+		terrainVertices:terrainOri.geometry.vertices,
+		pixcelX:pixcelX,
+		pixcelY:pixcelY,
+		oimo: oimo,
+		minfo: minfo
+	});
+	var i = oimo.pNum;
+	//add object
+	while (i--){
+		dynamicPos[i] = new Cesium.Cartesian3.fromDegrees(gClickPosition.longitude+(Math.random()*0.001),
+			gClickPosition.latitude+(Math.random()*0.001),
+			gClickPosition.height+(Math.random()*2));
+		var callbackPos = new Function("time, result", "return dynamicPos[" + i + "];" );
+		var callbackOri = new Function("time, result", "return dynamicOri[" + i + "];" );
+		cesium.entities.add({
+			position : new Cesium.CallbackProperty(callbackPos, false),
+			orientation : new Cesium.CallbackProperty(callbackOri, false),
+			point :{
+				pixelSize :6,
+				color : new Cesium.Color(0.1, 0.1, 0.1, 0.4)
+			}
+		});
+	}
 }
 
 function getTileCoords(lat, lon, zoom) {
